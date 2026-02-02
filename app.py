@@ -3,7 +3,6 @@ from flask_cors import CORS
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-
 app = Flask(__name__)
 CORS(app)  # allow Android / other clients to connect
 
@@ -15,17 +14,7 @@ def home():
         "service": "plagiarism-ai-server",
         "endpoints": {
             "health": "GET /health",
-            "check": "POST /check (JSON)"
-        },
-        "example_body_format_1": {
-            "essays": {
-                "StudentA": "text...",
-                "StudentB": "text..."
-            }
-        },
-        "example_body_format_2": {
-            "StudentA": "text...",
-            "StudentB": "text..."
+            "check": "POST /check"
         }
     })
 
@@ -35,11 +24,8 @@ def health():
     return jsonify({"ok": True})
 
 
-def compute_suggested_score(similarity_percent: float) -> int:
-    """
-    Suggested score only (teacher gives final score).
-    Returns an integer 1..5 based on similarity bands.
-    """
+def compute_suggested_score(similarity_percent):
+    # Suggested score only (teacher gives final score)
     if similarity_percent >= 80:
         return 5
     if similarity_percent >= 60:
@@ -52,12 +38,9 @@ def compute_suggested_score(similarity_percent: float) -> int:
 
 
 def normalize_essays(payload):
-    """
-    Accepts either:
-      1) {"essays": {...}}
-      2) {...}  (direct map)
-    Returns: dict of {student: essay_text}
-    """
+    # Accept both formats:
+    # 1) {"essays": {...}}
+    # 2) {...}
     if not isinstance(payload, dict):
         return {}
 
@@ -66,13 +49,10 @@ def normalize_essays(payload):
     else:
         essays = payload
 
-    # Clean & validate: keep only string keys and string values
     cleaned = {}
     for k, v in essays.items():
-        if isinstance(k, str) and isinstance(v, str):
-            text = v.strip()
-            if text:
-                cleaned[k.strip()] = text
+        if isinstance(k, str) and isinstance(v, str) and v.strip():
+            cleaned[k.strip()] = v.strip()
     return cleaned
 
 
@@ -83,25 +63,22 @@ def check_plagiarism():
 
     if len(essays) < 2:
         return jsonify({
-            "error": "At least 2 essays required",
-            "expected_format_1": {"essays": {"StudentA": "text", "StudentB": "text"}},
-            "expected_format_2": {"StudentA": "text", "StudentB": "text"}
+            "error": "At least 2 essays required"
         }), 400
 
     students = list(essays.keys())
-    texts = [essays[name] for name in students]
+    texts = [essays[s] for s in students]
 
-    # TF-IDF cosine similarity
     vectorizer = TfidfVectorizer(stop_words="english")
     tfidf_matrix = vectorizer.fit_transform(texts)
-    sim_matrix = cosine_similarity(tfidf_matrix)
+    similarity_matrix = cosine_similarity(tfidf_matrix)
 
     results = []
     similarities = []
 
     for i in range(len(students)):
         for j in range(i + 1, len(students)):
-            sim_percent = round(float(sim_matrix[i][j]) * 100, 2)
+            sim_percent = round(float(similarity_matrix[i][j]) * 100, 2)
             similarities.append(sim_percent)
 
             results.append({
@@ -114,13 +91,15 @@ def check_plagiarism():
     overall = {
         "studentsCount": len(students),
         "comparisons": len(results),
-        "avgSimilarity": round(sum(similarities) / len(similarities), 2) if similarities else 0.0,
-        "maxSimilarity": max(similarities) if similarities else 0.0
+        "avgSimilarity": round(sum(similarities) / len(similarities), 2),
+        "maxSimilarity": max(similarities)
     }
 
-    return jsonify({"results": results, "overall": overall})
+    return jsonify({
+        "results": results,
+        "overall": overall
+    })
 
 
 if __name__ == "__main__":
-    # Local only. On Render you should run with gunicorn (see below).
     app.run(host="0.0.0.0", port=5000)
